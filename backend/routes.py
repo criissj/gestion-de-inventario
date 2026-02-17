@@ -17,10 +17,17 @@ def get_products():
 @api_bp.route('/products', methods=['POST'])
 def create_product():
     data = request.json
+    
+    # Si el SKU viene vacío (''), lo convertimos a None (NULL en base de datos)
+    sku_value = data.get('sku')
+    if sku_value == "":
+        sku_value = None
+    # -----------------------
+
     new_product = Product(
         name=data['name'],
         category=data['category'],
-        sku=data.get('sku'),
+        sku=sku_value, # Usamos nuestra variable procesada
         cost=data['cost'],
         price=data['price'],
         stock=data.get('stock', 0)
@@ -46,9 +53,15 @@ def update_product(id):
     if data.get('cost') != product.cost:
         changes.append(f"Cost: {product.cost} -> {data['cost']}")
         
+    # Obtenemos el SKU enviado. Si es un string vacío, lo forzamos a None (NULL)
+    new_sku = data.get('sku', product.sku)
+    if new_sku == "":
+        new_sku = None
+    # -----------------------
+        
     product.name = data.get('name', product.name)
     product.category = data.get('category', product.category)
-    product.sku = data.get('sku', product.sku)
+    product.sku = new_sku  # Usamos nuestra variable procesada
     product.cost = data.get('cost', product.cost)
     product.price = data.get('price', product.price)
     product.stock = data.get('stock', product.stock)
