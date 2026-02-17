@@ -1,26 +1,40 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api';
 import type { Product } from '../types';
-import { ShoppingCart, Plus, Minus, X, CreditCard, Banknote, Landmark } from 'lucide-react';
+import {
+    ShoppingCart, Plus, Minus, X, Banknote, Landmark,
+    Search, Package
+} from 'lucide-react';
+import { sileo } from 'sileo';
 
 interface CartItem extends Product {
     cartQuantity: number;
 }
 
+// ─── Pagina principal ────────────────────────────────────────────────────────────────
 export default function POSPage() {
     const [products, setProducts] = useState<Product[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
-    const [paymentMethod, setPaymentMethod] = useState('Cash'); // Cash, Card, Transfer
+    const [paymentMethod, setPaymentMethod] = useState('Cash');
+    const [checkingOut, setCheckingOut] = useState(false);
 
     useEffect(() => {
         api.get('/products').then(res => setProducts(res.data));
     }, []);
 
     const addToCart = (product: Product) => {
+        if (product.stock === 0) {
+            sileo.error({ title: 'Sin stock', description: `${product.name} no tiene unidades disponibles.` });
+            return;
+        }
         setCart(prev => {
             const existing = prev.find(item => item.id === product.id);
             if (existing) {
+                if (existing.cartQuantity >= product.stock) {
+                    sileo.info({ title: 'Límite alcanzado', description: `Solo hay ${product.stock} unidades disponibles.` });
+                    return prev;
+                }
                 return prev.map(item =>
                     item.id === product.id
                         ? { ...item, cartQuantity: item.cartQuantity + 1 }
@@ -38,7 +52,12 @@ export default function POSPage() {
     const updateQuantity = (productId: number, delta: number) => {
         setCart(prev => prev.map(item => {
             if (item.id === productId) {
-                const newQty = Math.max(1, item.cartQuantity + delta);
+                const newQty = item.cartQuantity + delta;
+                if (newQty < 1) return item;
+                if (newQty > item.stock) {
+                    sileo.info({ title: 'Límite de stock', description: `Máximo ${item.stock} unidades.` });
+                    return item;
+                }
                 return { ...item, cartQuantity: newQty };
             }
             return item;
@@ -48,141 +67,184 @@ export default function POSPage() {
     const total = cart.reduce((sum, item) => sum + (item.price * item.cartQuantity), 0);
 
     const handleCheckout = async () => {
-        if (cart.length === 0) return;
-
-        const saleData = {
-            items: cart.map(item => ({
-                product_id: item.id,
-                quantity: item.cartQuantity
-            })),
-            payment_method: paymentMethod
-        };
-
+        if (cart.length === 0 || checkingOut) return;
+        setCheckingOut(true);
         try {
-            await api.post('/sales', saleData);
-            alert('Sale completed successfully!');
+            await api.post('/sales', {
+                items: cart.map(item => ({ product_id: item.id, quantity: item.cartQuantity })),
+                payment_method: paymentMethod,
+            });
+            sileo.success({ title: '¡Venta completada!', description: `Total: $${total.toLocaleString('es-CL')} — ${paymentMethod === 'Cash' ? 'Efectivo' : 'Transferencia'}` });
             setCart([]);
-            // Refresh products to update stock
             api.get('/products').then(res => setProducts(res.data));
-        } catch (error) {
-            console.error('Checkout failed:', error);
-            alert('Checkout failed');
+        } catch (error: any) {
+            const msg = error.response?.data?.error || 'No se pudo completar la venta.';
+            sileo.error({ title: 'Error en venta', description: msg });
+        } finally {
+            setCheckingOut(false);
         }
     };
 
     const filteredProducts = products.filter(p =>
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.sku?.includes(searchTerm)
+        p.sku?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    const paymentOptions = [
+        { id: 'Cash', label: 'Efectivo', icon: Banknote },
+        { id: 'Transfer', label: 'Transferencia', icon: Landmark },
+    ];
+
     return (
-        <div className="flex h-[calc(100vh-100px)] gap-6">
-            {/* Product Grid */}
-            <div className="flex-1 overflow-y-auto">
-                <input
-                    type="text"
-                    placeholder="Search products..."
-                    className="w-full p-4 mb-4 border rounded-lg shadow-sm"
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                />
-                <div className="grid grid-cols-3 gap-4">
-                    {filteredProducts.map(product => (
-                        <div key={product.id}
-                            onClick={() => addToCart(product)}
-                            className="bg-white p-4 rounded-lg shadow cursor-pointer hover:shadow-md transition border border-gray-100"
-                        >
-                            <h3 className="font-bold text-lg text-gray-800">{product.name}</h3>
-                            <p className="text-sm text-gray-500">{product.category}</p>
-                            <div className="mt-2 flex justify-between items-center">
-                                <span className="text-blue-600 font-bold">${product.price}</span>
-                                <span className={`text-xs px-2 py-1 rounded ${product.stock > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                    Stock: {product.stock}
-                                </span>
-                            </div>
-                        </div>
-                    ))}
+        <div className="pos-layout">
+            {/* ── Product Grid ── */}
+            <div className="pos-products">
+                <div className="pos-search-wrapper">
+                    <Search className="pos-search__icon" />
+                    <input
+                        type="text"
+                        placeholder="Buscar producto o SKU..."
+                        className="pos-search"
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                    />
                 </div>
+
+                {filteredProducts.length === 0 ? (
+                    <div className="empty-state">
+                        <Package className="empty-state__icon" />
+                        <p className="empty-state__title">Sin resultados</p>
+                        <p className="empty-state__sub">Intenta con otro término de búsqueda.</p>
+                    </div>
+                ) : (
+                    <div className="product-grid">
+                        {filteredProducts.map(product => {
+                            const inCart = cart.find(i => i.id === product.id);
+                            const outOfStock = product.stock === 0;
+                            return (
+                                <div
+                                    key={product.id}
+                                    onClick={() => addToCart(product)}
+                                    className={`product-card ${outOfStock ? 'product-card--disabled' : ''} ${inCart ? 'product-card--in-cart' : ''}`}
+                                >
+                                    {inCart && (
+                                        <span className="product-card__qty-badge">{inCart.cartQuantity}</span>
+                                    )}
+                                    <p className="product-card__category">{product.category}</p>
+                                    <h3 className="product-card__name">{product.name}</h3>
+                                    {product.sku && (
+                                        <p className="product-card__sku">{product.sku}</p>
+                                    )}
+                                    <div className="product-card__footer">
+                                        {/* Formato Chileno */}
+                                        <span className="product-card__price">${product.price.toLocaleString('es-CL')}</span>
+                                        <span className={`badge ${outOfStock ? 'badge--danger' : product.stock < 10 ? 'badge--warning' : 'badge--success'}`}>
+                                            {outOfStock ? 'Sin stock' : `${product.stock} uds.`}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
-            {/* Cart */}
-            <div className="w-96 bg-white rounded-lg shadow-lg flex flex-col h-full">
-                <div className="p-4 border-b bg-gray-50 rounded-t-lg">
-                    <h2 className="text-xl font-bold flex items-center">
-                        <ShoppingCart className="mr-2" /> Current Sale
-                    </h2>
+            {/* ── Cart ── */}
+            <aside className="pos-cart">
+                <div className="pos-cart__header">
+                    <div className="pos-cart__title">
+                        <ShoppingCart className="w-4 h-4" />
+                        <span>Carrito</span>
+                    </div>
+                    {cart.length > 0 && (
+                        <button
+                            className="pos-cart__clear"
+                            onClick={() => setCart([])}
+                        >
+                            Vaciar
+                        </button>
+                    )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="pos-cart__items">
                     {cart.length === 0 ? (
-                        <p className="text-gray-400 text-center mt-10">Cart is empty</p>
+                        <div className="pos-cart__empty">
+                            <ShoppingCart className="pos-cart__empty-icon" />
+                            <p>El carrito está vacío</p>
+                            <span>Selecciona productos del panel izquierdo</span>
+                        </div>
                     ) : (
                         cart.map(item => (
-                            <div key={item.id} className="flex justify-between items-center border-b pb-2">
-                                <div>
-                                    <h4 className="font-medium">{item.name}</h4>
-                                    <div className="text-sm text-gray-500">${item.price} x {item.cartQuantity}</div>
+                            <div key={item.id} className="cart-item">
+                                <div className="cart-item__info">
+                                    <p className="cart-item__name">{item.name}</p>
+                                    {/* Formato Chileno */}
+                                    <p className="cart-item__price">${item.price.toLocaleString('es-CL')} c/u</p>
                                 </div>
-                                <div className="flex items-center space-x-2">
-                                    <button onClick={() => updateQuantity(item.id, -1)} className="p-1 hover:bg-gray-100 rounded">
-                                        <Minus className="w-4 h-4" />
+                                <div className="cart-item__controls">
+                                    <button
+                                        className="qty-btn"
+                                        onClick={() => updateQuantity(item.id, -1)}
+                                    >
+                                        <Minus className="w-3 h-3" />
                                     </button>
-                                    <span className="w-8 text-center">{item.cartQuantity}</span>
-                                    <button onClick={() => updateQuantity(item.id, 1)} className="p-1 hover:bg-gray-100 rounded">
-                                        <Plus className="w-4 h-4" />
-                                    </button>
-                                    <button onClick={() => removeFromCart(item.id)} className="text-red-500 ml-2">
-                                        <X className="w-4 h-4" />
+                                    <span className="qty-value">{item.cartQuantity}</span>
+                                    <button
+                                        className="qty-btn"
+                                        onClick={() => updateQuantity(item.id, 1)}
+                                    >
+                                        <Plus className="w-3 h-3" />
                                     </button>
                                 </div>
+                                <div className="cart-item__subtotal">
+                                    {/* Formato Chileno */}
+                                    ${(item.price * item.cartQuantity).toLocaleString('es-CL')}
+                                </div>
+                                <button
+                                    className="cart-item__remove"
+                                    onClick={() => removeFromCart(item.id)}
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
                             </div>
                         ))
                     )}
                 </div>
 
-                <div className="p-4 border-t bg-gray-50 rounded-b-lg">
-
-                    {/* Payment Method Selector */}
-                    <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
-                        <div className="grid grid-cols-3 gap-2">
-                            <button
-                                onClick={() => setPaymentMethod('Cash')}
-                                className={`flex flex-col items-center justify-center p-2 rounded border ${paymentMethod === 'Cash' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'border-gray-200 hover:bg-gray-50'}`}
-                            >
-                                <Banknote className="w-5 h-5 mb-1" />
-                                <span className="text-xs font-semibold">Cash</span>
-                            </button>
-                            <button
-                                onClick={() => setPaymentMethod('Card')}
-                                className={`flex flex-col items-center justify-center p-2 rounded border ${paymentMethod === 'Card' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'border-gray-200 hover:bg-gray-50'}`}
-                            >
-                                <CreditCard className="w-5 h-5 mb-1" />
-                                <span className="text-xs font-semibold">Card</span>
-                            </button>
-                            <button
-                                onClick={() => setPaymentMethod('Transfer')}
-                                className={`flex flex-col items-center justify-center p-2 rounded border ${paymentMethod === 'Transfer' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'border-gray-200 hover:bg-gray-50'}`}
-                            >
-                                <Landmark className="w-5 h-5 mb-1" />
-                                <span className="text-xs font-semibold">Transfer</span>
-                            </button>
+                <div className="pos-cart__footer">
+                    {/* Payment Method */}
+                    <div className="payment-section">
+                        <p className="payment-label">Método de pago</p>
+                        <div className="payment-options">
+                            {paymentOptions.map(({ id, label, icon: Icon }) => (
+                                <button
+                                    key={id}
+                                    onClick={() => setPaymentMethod(id)}
+                                    className={`payment-btn ${paymentMethod === id ? 'payment-btn--active' : ''}`}
+                                >
+                                    <Icon className="w-4 h-4" />
+                                    <span>{label}</span>
+                                </button>
+                            ))}
                         </div>
                     </div>
 
-                    <div className="flex justify-between text-xl font-bold mb-4">
-                        <span>Total:</span>
-                        <span>${total.toFixed(2)}</span>
+                    {/* Total */}
+                    <div className="pos-total">
+                        <span>Total</span>
+                        {/* Formato Chileno */}
+                        <span className="pos-total__amount">${total.toLocaleString('es-CL')}</span>
                     </div>
+
                     <button
                         onClick={handleCheckout}
-                        disabled={cart.length === 0}
-                        className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                        disabled={cart.length === 0 || checkingOut}
+                        className="btn btn--primary btn--full"
                     >
-                        Complete Sale
+                        {checkingOut ? 'Procesando...' : 'Completar venta'}
                     </button>
                 </div>
-            </div>
+            </aside>
         </div>
     );
 }

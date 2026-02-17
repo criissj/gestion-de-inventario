@@ -10,8 +10,14 @@ CORS(app)
 import time
 from sqlalchemy.exc import OperationalError
 
+database_url = os.environ.get('DATABASE_URL')
+
+# Validamos estrictamente que la variable exista para evitar fallos silenciosos
+if not database_url:
+    raise ValueError("¡Error Crítico!: No se ha configurado la variable DATABASE_URL en el entorno.")
+
 # Database Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://admin:password@localhost:5432/inventory_db')
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
@@ -25,13 +31,13 @@ def wait_for_db():
         try:
             with app.app_context():
                 db.create_all()
-            print("Database connected and initialized.")
+            print("Bse de datos conectada e inicializada.")
             return
         except OperationalError:
             retries -= 1
-            print(f"Database not ready. Retrying in 5 seconds... ({retries} retries left)")
+            print(f"Base de datos no esta activa. Reintentado en 5 segundos... ({retries} intentos restantes)")
             time.sleep(5)
-    print("Could not connect to database after retries.")
+    print("No se pudo realizar conexion a la base de datos.")
 
 if __name__ == '__main__':
     wait_for_db()
