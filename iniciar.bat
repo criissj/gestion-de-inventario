@@ -54,7 +54,7 @@ echo =====================================================
 echo.
 echo Los servicios estan corriendo en segundo plano.
 echo.
-echo [FRONTEND] Accede aqui:  http://localhost:5173
+echo [FRONTEND] Accede aqui:  http://localhost:3000
 REM NOTA: Si tu puerto frontend en docker-compose.yml no es 5173, cambialo en la linea de arriba.
 echo [BACKEND] API activa en puerto 5000 (uso interno)
 echo [DB] Base de datos PostgreSQL activa
