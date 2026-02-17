@@ -1,49 +1,115 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import { LayoutDashboard, ShoppingCart, Package, History } from 'lucide-react';
+import React, { useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { LayoutDashboard, ShoppingCart, Package, History, Menu, X } from 'lucide-react';
+
+import { Toaster } from 'sileo';
+//import 'sileo/dist/styles.css';
+
 import InventoryPage from './pages/InventoryPage';
 import POSPage from './pages/POSPage';
 import SalesHistoryPage from './pages/SalesHistoryPage';
 import DashboardPage from './pages/DashboardPage';
 
-function App() {
+const navItems = [
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/pos', icon: ShoppingCart, label: 'Realizar venta' },
+  { to: '/inventory', icon: Package, label: 'Inventario' },
+  { to: '/history', icon: History, label: 'Historial de ventas' },
+];
+
+function NavLink({ to, icon: Icon, label }: { to: string; icon: React.ElementType; label: string }) {
+  const location = useLocation();
+  const isActive = location.pathname === to || (to === '/dashboard' && location.pathname === '/');
+
   return (
-    <Router>
-      <div className="flex h-screen bg-gray-100">
-        {/* Sidebar */}
-        <div className="w-64 bg-white shadow-md">
-          <div className="p-4">
-            <h1 className="text-2xl font-bold text-blue-600">Inventory App</h1>
+    <Link
+      to={to}
+      className={`nav-link ${isActive ? 'nav-link--active' : ''}`}
+    >
+      <Icon className="nav-link__icon" />
+      <span>{label}</span>
+      {isActive && <span className="nav-link__indicator" />}
+    </Link>
+  );
+}
+
+function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  return (
+    <>
+      {isOpen && (
+        <div className="sidebar-overlay" onClick={onClose} />
+      )}
+      <aside className={`sidebar ${isOpen ? 'sidebar--open' : ''}`}>
+        <div className="sidebar__header">
+          <div className="sidebar__logo">
+            <div className="sidebar__logo-icon">
+              <Package className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="sidebar__logo-title">Inventario</span>
+              <span className="sidebar__logo-sub">Sistema de gestión</span>
+            </div>
           </div>
-          <nav className="mt-4">
-            <Link to="/dashboard" className="flex items-center px-4 py-3 hover:bg-gray-50 text-gray-700">
-              <LayoutDashboard className="w-5 h-5 mr-3" />
-              Dashboard
-            </Link>
-            <Link to="/pos" className="flex items-center px-4 py-3 hover:bg-gray-50 text-gray-700">
-              <ShoppingCart className="w-5 h-5 mr-3" />
-              Point of Sale
-            </Link>
-            <Link to="/inventory" className="flex items-center px-4 py-3 hover:bg-gray-50 text-gray-700">
-              <Package className="w-5 h-5 mr-3" />
-              Inventory
-            </Link>
-            <Link to="/history" className="flex items-center px-4 py-3 hover:bg-gray-50 text-gray-700">
-              <History className="w-5 h-5 mr-3" />
-              Sales History
-            </Link>
-          </nav>
+          <button className="sidebar__close" onClick={onClose}>
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 overflow-auto p-8">
-          <Routes>
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/pos" element={<POSPage />} />
-            <Route path="/inventory" element={<InventoryPage />} />
-            <Route path="/history" element={<SalesHistoryPage />} />
-            <Route path="/" element={<DashboardPage />} />
-          </Routes>
+        <div className="sidebar__section-label">Menú principal</div>
+
+        <nav className="sidebar__nav">
+          {navItems.map((item) => (
+            <NavLink key={item.to} {...item} />
+          ))}
+        </nav>
+
+        <div className="sidebar__footer">
+          <div className="sidebar__footer-dot" />
+          <span>Sistema activo</span>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function App() {
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  return (
+    <Router>
+      <Toaster />
+
+      <div className="app-layout">
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+        <div className={`app-main ${sidebarOpen ? 'app-main--shifted' : ''}`}>
+          <header className="app-header">
+            <button
+              className="app-header__menu-btn"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="app-header__breadcrumb">
+              <Routes>
+                <Route path="/dashboard" element={<span>Dashboard</span>} />
+                <Route path="/pos" element={<span>Realizar venta</span>} />
+                <Route path="/inventory" element={<span>Inventario</span>} />
+                <Route path="/history" element={<span>Historial de ventas</span>} />
+                <Route path="/" element={<span>Dashboard</span>} />
+              </Routes>
+            </div>
+          </header>
+
+          <main className="app-content">
+            <Routes>
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/pos" element={<POSPage />} />
+              <Route path="/inventory" element={<InventoryPage />} />
+              <Route path="/history" element={<SalesHistoryPage />} />
+              <Route path="/" element={<DashboardPage />} />
+            </Routes>
+          </main>
         </div>
       </div>
     </Router>

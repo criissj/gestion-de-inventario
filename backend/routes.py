@@ -2,13 +2,9 @@ from flask import Blueprint, request, jsonify
 from models import db, Product, Sale, SaleItem, ProductLog
 from datetime import datetime, timedelta
 from sqlalchemy import func
+from utils import log_product_action
 
 api_bp = Blueprint('api', __name__)
-
-# --- Helper Functions ---
-def log_product_action(product_id, action, details):
-    log = ProductLog(product_id=product_id, action=action, details=details)
-    db.session.add(log)
 
 # --- Product Routes ---
 
@@ -76,8 +72,7 @@ def get_product_logs(id):
     logs = ProductLog.query.filter_by(product_id=id).order_by(ProductLog.timestamp.desc()).all()
     return jsonify([l.to_dict() for l in logs])
 
-# --- Sales Routes ---
-
+# --- ENDPOINT ENCARGARDO DE REALIZAR LAS ACCIONES PARA LAS VENTAS ---
 @api_bp.route('/sales', methods=['POST'])
 def create_sale():
     data = request.json
@@ -95,6 +90,13 @@ def create_sale():
             continue 
             
         qty = item['quantity']
+        
+        # --- CORRECCIÓN: VALIDAR Y DESCONTAR STOCK ---
+        if product.stock < qty:
+            return jsonify({'error': f'Not enough stock for {product.name}'}), 400
+        product.stock -= qty
+        # ----------------------------------------------
+        
         price = product.price
         cost = product.cost
         
@@ -113,7 +115,7 @@ def create_sale():
         sale_items_objects.append(sale_item)
         
         # Log stock change
-        log_product_action(product.id, 'SALE', f"Sold {qty} units via {payment_method}")
+        log_product_action(product.id, 'SALE', f"Sold {qty} units via {payment_method}. New stock: {product.stock}")
 
     new_sale = Sale(
         total_amount=total_amount, 
@@ -121,7 +123,7 @@ def create_sale():
         payment_method=payment_method
     )
     db.session.add(new_sale)
-    db.session.flush()
+    db.session.flush() # Importante: Obtenemos el ID de la nueva venta
     
     for item in sale_items_objects:
         item.sale_id = new_sale.id
@@ -150,8 +152,7 @@ def get_dashboard_stats():
     # Low Stock Alerts (Stock < 10)
     low_stock_products = Product.query.filter(Product.stock < 10, Product.is_active == True).limit(5).all()
     
-    # Top Selling Products (Simple count for now, could be optimized with aggregation)
-    # Using SQL Alchemy for aggregation
+    # Top Selling Products
     top_products_query = db.session.query(
         Product.name, func.sum(SaleItem.quantity).label('total_qty')
     ).join(SaleItem, Product.id == SaleItem.product_id)\
@@ -161,12 +162,22 @@ def get_dashboard_stats():
      
     top_products = [{'name': name, 'quantity': qty} for name, qty in top_products_query]
 
+    # --- NUEVO: Ventas por Método de Pago ---
+    payment_query = db.session.query(
+        Sale.payment_method, func.sum(Sale.total_amount).label('total')
+    ).group_by(Sale.payment_method).all()
+    
+    # Traducimos los métodos al español para el gráfico
+    translations = {'Cash': 'Efectivo', 'Card': 'Tarjeta', 'Transfer': 'Transferencia'}
+    payment_methods = [{'name': translations.get(method, method), 'value': float(total)} for method, total in payment_query]
+
     return jsonify({
         'total_sales_today': total_sales_today,
         'total_profit_today': total_profit_today,
         'transaction_count': len(sales_today),
         'low_stock_products': [p.to_dict() for p in low_stock_products],
-        'top_selling_products': top_products
+        'top_selling_products': top_products,
+        'payment_methods': payment_methods # Enviamos el nuevo dato
     })
 
 @api_bp.route('/sales/trends', methods=['GET'])
@@ -175,25 +186,33 @@ def get_sales_trends():
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=6)
     
+    # --- NUEVO: Ahora también sumamos el total_profit ---
     results = db.session.query(
         func.date(Sale.date_time).label('date'),
-        func.sum(Sale.total_amount).label('total')
+        func.sum(Sale.total_amount).label('total'),
+        func.sum(Sale.total_profit).label('profit')
     ).filter(Sale.date_time >= start_date)\
      .group_by(func.date(Sale.date_time))\
      .order_by(func.date(Sale.date_time)).all()
      
-    # Fill in missing dates
-    data = {}
+    data_total = {}
+    data_profit = {}
     for r in results:
-        data[str(r.date)] = r.total
+        data_total[str(r.date)] = r.total
+        data_profit[str(r.date)] = r.profit
+        
+    # Nombres de días en español
+    dias_espanol = {'Mon': 'Lun', 'Tue': 'Mar', 'Wed': 'Mié', 'Thu': 'Jue', 'Fri': 'Vie', 'Sat': 'Sáb', 'Sun': 'Dom'}
         
     full_data = []
     for i in range(7):
         date = (start_date + timedelta(days=i)).date()
         date_str = str(date)
+        day_en = date.strftime('%a')
         full_data.append({
-            'date': date.strftime('%a'), # Mon, Tue, etc.
-            'total': data.get(date_str, 0)
+            'date': dias_espanol.get(day_en, day_en), 
+            'total': float(data_total.get(date_str, 0)),
+            'profit': float(data_profit.get(date_str, 0)) # Enviamos la ganancia
         })
         
     return jsonify(full_data)

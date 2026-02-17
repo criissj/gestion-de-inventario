@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api';
 import type { ProductLog } from '../types';
-import { X } from 'lucide-react';
+import { X, History, Plus, Trash2, ShoppingCart, Edit } from 'lucide-react';
+import { sileo } from 'sileo';
 
 interface Props {
     productId: number;
@@ -9,51 +10,107 @@ interface Props {
     onClose: () => void;
 }
 
+const ACTION_CONFIG: Record<string, { label: string; className: string; icon: React.ElementType }> = {
+    CREATE: { label: 'Creado', className: 'log-badge--create', icon: Plus },
+    DELETE: { label: 'Eliminado', className: 'log-badge--delete', icon: Trash2 },
+    SALE: { label: 'Venta', className: 'log-badge--sale', icon: ShoppingCart },
+    UPDATE: { label: 'Editado', className: 'log-badge--update', icon: Edit },
+};
+
 export default function ProductLogsModal({ productId, productName, onClose }: Props) {
     const [logs, setLogs] = useState<ProductLog[]>([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         api.get(`/products/${productId}/logs`)
             .then(res => setLogs(res.data))
-            .catch(err => console.error(err));
+            .catch(err => {
+                console.error(err);
+                sileo.error({
+                    title: 'Error de carga',
+                    description: 'No se pudo obtener el historial de este producto.'
+                });
+            })
+            .finally(() => setLoading(false));
     }, [productId]);
 
+    const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (e.target === e.currentTarget) onClose();
+    };
+
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg w-full max-w-2xl h-[80vh] flex flex-col">
-                <div className="flex justify-between items-center p-4 border-b">
-                    <h3 className="text-xl font-bold">History: {productName}</h3>
-                    <button onClick={onClose}><X className="w-6 h-6" /></button>
+        <div className="modal-backdrop" onClick={handleBackdropClick}>
+            <div className="modal modal--wide">
+                <div className="modal__header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{
+                            width: 32, height: 32, borderRadius: 8,
+                            background: 'var(--accent-light)', color: 'var(--accent)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}>
+                            <History className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <h3 className="modal__title">Historial</h3>
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 1 }}>
+                                {productName}
+                            </p>
+                        </div>
+                    </div>
+                    <button className="modal__close" onClick={onClose}>
+                        <X className="w-4 h-4" />
+                    </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-4">
-                    <table className="min-w-full">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-4 py-2 text-left">Date</th>
-                                <th className="px-4 py-2 text-left">Action</th>
-                                <th className="px-4 py-2 text-left">Details</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                            {logs.map(log => (
-                                <tr key={log.id}>
-                                    <td className="px-4 py-2 text-sm text-gray-500">
-                                        {new Date(log.timestamp).toLocaleString()}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        <span className={`px-2 py-1 rounded text-xs font-bold 
-                                            ${log.action === 'CREATE' ? 'bg-green-100 text-green-800' :
-                                                log.action === 'DELETE' ? 'bg-red-100 text-red-800' :
-                                                    log.action === 'SALE' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100'}`}>
-                                            {log.action}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-2 text-sm">{log.details}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                <div className="logs-body">
+                    {loading ? (
+                        <div className="empty-state">
+                            <p className="empty-state__sub">Cargando historial...</p>
+                        </div>
+                    ) : logs.length === 0 ? (
+                        <div className="empty-state">
+                            <History className="empty-state__icon" />
+                            <p className="empty-state__title">Sin registros</p>
+                            <p className="empty-state__sub">No hay actividad registrada para este producto.</p>
+                        </div>
+                    ) : (
+                        <div className="log-timeline">
+                            {logs.map((log, idx) => {
+                                const config = ACTION_CONFIG[log.action] || {
+                                    label: log.action,
+                                    className: 'log-badge--update',
+                                    icon: Edit
+                                };
+                                const IconComp = config.icon;
+                                return (
+                                    <div key={log.id} className="log-entry">
+                                        <div className="log-entry__line">
+                                            <div className={`log-entry__dot ${config.className}`}>
+                                                <IconComp className="w-3 h-3" />
+                                            </div>
+                                            {idx < logs.length - 1 && <div className="log-entry__connector" />}
+                                        </div>
+                                        <div className="log-entry__content">
+                                            <div className="log-entry__header">
+                                                <span className={`log-badge ${config.className}`}>
+                                                    {config.label}
+                                                </span>
+                                                <span className="log-entry__time">
+                                                    {new Date(log.timestamp).toLocaleString('es-CL', {
+                                                        day: '2-digit', month: 'short', year: 'numeric',
+                                                        hour: '2-digit', minute: '2-digit'
+                                                    })}
+                                                </span>
+                                            </div>
+                                            {log.details && (
+                                                <p className="log-entry__details">{log.details}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
