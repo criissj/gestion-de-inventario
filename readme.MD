@@ -2,8 +2,6 @@
 
 Un sistema integral "Full-Stack" para la gestión de inventario y punto de venta. Diseñado con una arquitectura moderna orientada a microservicios mediante Docker, asegurando alta disponibilidad, precisión financiera y una excelente experiencia de usuario.
 
-![Dashboard Preview](ruta-a-tu-imagen-del-dashboard.png) *(Reemplaza con una captura de pantalla de tu Dashboard)*
-
 ## ✨ Características Principales
 
 ### 📊 Dashboard Analítico (Business Intelligence)
