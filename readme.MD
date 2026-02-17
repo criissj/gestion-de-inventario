@@ -135,3 +135,4 @@ DELETE,/api/products/<id>,Soft-delete (Desactiva) un producto.
 POST,/api/sales,Procesa una nueva venta y descuenta el stock (ACID transaction).
 GET,/api/sales,Retorna el historial de ventas paginable.
 
+
